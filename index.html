@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地震と温度を見てみましょう。</title>
+    <style>
+        :root {
+            --bg-color: #050a0f;
+            --card-bg: #101820;
+            --text-main: #eceff1;
+            --accent-color: #00e5ff;
+        }
+
+        body {
+            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        header {
+            width: 100%;
+            padding: 60px 0;
+            text-align: center;
+            background: linear-gradient(to bottom, #1a237e, var(--bg-color));
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            letter-spacing: 4px;
+            margin: 0;
+            text-shadow: 0 0 20px rgba(0, 229, 255, 0.5);
+        }
+
+        p.subtitle {
+            color: #90a4ae;
+            margin-top: 10px;
+            font-size: 1.1rem;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            width: 90%;
+            max-width: 1200px;
+            padding: 40px 0;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid #263238;
+            border-radius: 15px;
+            overflow: hidden;
+            transition: transform 0.3s, box-shadow 0.3s;
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 30px rgba(0, 229, 255, 0.2);
+            border-color: var(--accent-color);
+        }
+
+        .card-image {
+            height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 4rem;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .card-content {
+            padding: 25px;
+        }
+
+        .card-title {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: var(--accent-color);
+            margin-bottom: 15px;
+        }
+
+        .card-desc {
+            font-size: 0.9rem;
+            line-height: 1.6;
+            color: #b0bec5;
+        }
+
+        .source-tag {
+            margin-top: 15px;
+            font-size: 0.75rem;
+            color: #546e7a;
+            font-family: monospace;
+        }
+
+        footer {
+            margin-top: auto;
+            padding: 40px;
+            font-size: 0.8rem;
+            color: #546e7a;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>GLOBAL EARTH MONITOR</h1>
+    <p class="subtitle">地球の鼓動を、データから眺める。</p>
+</header>
+
+<div class="container">
+    <a href="W_quake.html" class="card">
+        <div class="card-image">📡</div>
+        <div class="card-content">
+            <div class="card-title">世界の最新地震分布（USGS）</div>
+            <div class="card-desc">
+                USGS（米国地質調査所）の速報データを取得。マグニチュードに基づき、世界各地で発生した最新の地震活動を可視化します。
+            </div>
+            <div class="source-tag">Source: USGS GeoJSON Feed</div>
+        </div>
+    </a>
+
+    <a href="J_quake.html" class="card">
+        <div class="card-image">🌋</div>
+        <div class="card-content">
+            <div class="card-title">日本の最新地震分布（気象庁）</div>
+            <div class="card-desc">
+                気象庁の地震発生データを取得。震度に基づき、日本各地で発生した最新の地震活動を可視化します。
+
+            </div>
+            <div class="source-tag">Source: GFZ Potsdam / IHFC</div>
+        </div>
+    </a>
+
+    <a href="heat.html" class="card">
+        <div class="card-image">🌡️</div>
+        <div class="card-content">
+            <div class="card-title">地表および海水表面温度（NOAA SST / NASA GISS）</div>
+            <div class="card-desc">
+                地表および海水表面温度のモニタリングデータ。1970年から現在に至る変化を可視化します。
+            </div>
+            <div class="source-tag">Source: NOAA SST / NASA GISS</div>
+        </div>
+    </a>
+</div>
+
+<footer>
+    &copy; 2026 Earth Dynamic

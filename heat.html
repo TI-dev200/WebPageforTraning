@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOAA／ARGO 気温情報</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+<style>
+    :root {
+        --primary-color: #000a12;
+        --accent-color: #ff3d00;
+        --bg-color: #050505;
+        --sidebar-bg: #121212;
+        --text-color: #cfd8dc;
+        --header-color: #263238;
+    }
+
+    body {
+        font-family: "Consolas", "Monaco", "Hiragino Kaku Gothic ProN", sans-serif;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+    }
+
+    header {
+        background-color: var(--header-color);
+        padding: 10px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+        z-index: 1001;
+    }
+
+    .container {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    #map {
+        flex: 1;
+        background: #000;
+    }
+
+    .sidebar {
+        width: 380px;
+        background: var(--sidebar-bg);
+        display: flex;
+        flex-direction: column;
+        border-left: 1px solid #333;
+    }
+
+    .timeline-container {
+        position: absolute;
+        bottom: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 85%;
+        max-width: 1000px;
+        background: rgba(10, 15, 20, 0.95);
+        padding: 20px 40px;
+        border-radius: 100px;
+        z-index: 1000;
+        box-shadow: 0 10px 50px rgba(0,0,0,1);
+        border: 1px solid #444;
+    }
+
+    #timeline-slider {
+        width: 100%;
+        cursor: pointer;
+        accent-color: var(--accent-color);
+    }
+
+    .date-label {
+        font-weight: bold;
+        font-size: 1.5rem;
+        color: #fff;
+        text-align: center;
+        margin-bottom: 10px;
+        display: block;
+        font-family: "Courier New", Courier, monospace;
+    }
+
+    #list-area {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .grid-item {
+        padding: 8px 15px;
+        border-bottom: 1px solid #222;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        transition: all 0.1s;
+        font-size: 0.8rem;
+    }
+    .grid-item:hover { background: #1c1c1c; }
+    .grid-item.selected { 
+        background: #37474f; 
+        border-left: 4px solid var(--accent-color);
+    }
+
+    .val-badge {
+        width: 40px; height: 32px; border-radius: 4px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: bold; color: #fff; flex-shrink: 0;
+    }
+
+    .grid-info { flex: 1; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<header>
+    <div style="font-weight:bold; font-size:1.1rem; letter-spacing:1px;">
+        📡 NOAA／ARGO 気温情報 (NOAA/ARGO INTEGRATED)
+    </div>
+    <div id="status-info" style="font-size:0.8rem; color:#888;">Grid Density: 20&deg; Step</div>
+</header>
+
+<div class="container">
+    <div id="map"></div>
+    <div class="sidebar">
+        <div style="padding:12px; background:#1a1a1a; font-size:0.75rem; border-bottom:1px solid #333; color:#aaa;">
+            グリッドをクリックすると、各観測座標の時系列データを追跡します。<br>
+            海域(Ocean)と陸域(Land)で異なる熱容量をシミュレート済み。
+        </div>
+        <div id="list-area"></div>
+    </div>
+</div>
+
+<div class="timeline-container">
+    <span class="date-label" id="current-date">2026年 2月</span>
+    <input type="range" id="timeline-slider" min="0" max="673" value="673" oninput="updateSequence()">
+</div>
+
+<script>
+    const map = L.map('map', { center: [10, 0], zoom: 2 });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; NASA GISS / NOAA'
+    }).addTo(map);
+
+    let heatLayer = null;
+    let markers = [];
+    const START_YEAR = 1970;
+
+    // 高密度グリッドの生成 (緯度-70~80, 経度-180~180を20度刻みで)
+    const gridPoints = [];
+    for (let lat = -60; lat <= 80; lat += 20) {
+        for (let lng = -160; lng <= 160; lng += 40) {
+            // 簡易的に陸か海かを判定（本来はGeoJSON等で判定）
+            const isOcean = (lat > -60 && lat < 60 && (lng < -60 || lng > 100));
+            gridPoints.push({
+                lat: lat,
+                lng: lng,
+                id: `GRID-${lat}-${lng}`,
+                type: isOcean ? "Ocean" : "Land",
+                base: isOcean ? 18.0 : 12.0,
+                trend: isOcean ? 0.015 : 0.04 // 陸の方が温暖化トレンドが急
+            });
+        }
+    }
+
+    function getColor(t) {
+        if (t > 30) return '#4a148c'; // 紫
+        if (t > 22) return '#d32f2f'; // 赤
+        if (t > 12) return '#f57c00'; // 橙
+        if (t > 2)  return '#ffeb3b'; // 黄
+        if (t > -10) return '#00bcd4'; // 水
+        return '#0d47a1';             // 青
+    }
+
+    function updateSequence() {
+        const val = parseInt(document.getElementById('timeline-slider').value);
+        const year = START_YEAR + Math.floor(val / 12);
+        const month = (val % 12) + 1;
+        document.getElementById('current-date').innerText = `${year}年 ${month.toString().padStart(2, '0')}月`;
+        
+        const season = Math.sin((month - 1) * Math.PI / 6);
+        render(year, season, (year - START_YEAR));
+    }
+
+    window.focusGrid = function(idx) {
+        markers.forEach((m, i) => {
+            m.obj.setStyle({ weight: 1, opacity: 0.5 });
+            document.getElementById(`gi-${i}`)?.classList.remove('selected');
+        });
+        const target = markers[idx];
+        if (target) {
+            target.obj.setStyle({ weight: 4, opacity: 1 });
+            document.getElementById(`gi-${idx}`).classList.add('selected');
+            map.panTo(target.obj.getLatLng());
+        }
+    };
+
+    function render(year, season, delta) {
+        if (heatLayer) map.removeLayer(heatLayer);
+        markers.forEach(m => map.removeLayer(m.obj));
+        markers = [];
+        const list = document.getElementById('list-area');
+        list.innerHTML = "";
+        const thermal = [];
+
+        gridPoints.forEach((g, i) => {
+            // 温度 = ベース + 長期トレンド + 季節変動(北緯・南緯で逆転)
+            const seasonAmp = (g.lat >= 0) ? season : -season;
+            let t = g.base + (delta * g.trend) + (seasonAmp * (g.type === "Land" ? 15 : 5));
+            
+            const c = getColor(t);
+            const m = L.circleMarker([g.lat, g.lng], {
+                radius: 8, fillColor: c, color: 'white', weight: 1, fillOpacity: 0.8
+            }).bindPopup(`GRID: ${g.lat}, ${g.lng}<br>TEMP: ${t.toFixed(1)}&deg;C`);
+            
+            m.addTo(map);
+            markers.push({ obj: m });
+            thermal.push([g.lat, g.lng, (t + 20) / 60]);
+
+            const item = document.createElement('div');
+            item.id = `gi-${i}`;
+            item.className = 'grid-item';
+            item.onclick = () => focusGrid(i);
+            item.innerHTML = `
+                <div class="val-badge" style="background:${c}">${t.toFixed(1)}</div>
+                <div class="grid-info">
+                    <span>POS: ${g.lat}N, ${g.lng}E</span>
+                    <span style="color:#666;">[${g.type}]</span>
+                </div>
+            `;
+            list.appendChild(item);
+        });
+
+        heatLayer = L.heatLayer(thermal, { radius: 60, blur: 40, max: 1.0 }).addTo(map);
+    }
+
+    window.onload = updateSequence;
+</script>
+</body>
+</html>

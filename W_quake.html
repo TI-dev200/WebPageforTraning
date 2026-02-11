@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>世界地震マップ (USGS版)</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+    :root {
+        --primary-color: #37474f; /* 世界地図用のダークグレー */
+        --accent-color: #ff5252;
+        --bg-color: #eceff1;
+        --highlight-bg: #ffebee;
+        --highlight-border: #ff1744;
+    }
+
+    body {
+        font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", sans-serif;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background-color: var(--bg-color);
+    }
+
+    header {
+        background-color: var(--primary-color);
+        color: white;
+        padding: 12px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1001;
+    }
+
+    .header-title {
+        font-weight: bold;
+        font-size: 1.3rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .last-update-display {
+        font-size: 0.85rem;
+        background: rgba(0,0,0,0.2);
+        padding: 5px 12px;
+        border-radius: 20px;
+    }
+
+    .container {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+        flex-direction: column;
+    }
+
+    @media (min-width: 768px) {
+        .container {
+            flex-direction: row;
+        }
+        .sidebar {
+            width: 360px;
+            border-left: 1px solid #cfd8dc;
+        }
+    }
+
+    #map {
+        flex: 1;
+        z-index: 1;
+        background: #aad3df; /* 海の色 */
+    }
+
+    .sidebar {
+        background: white;
+        display: flex;
+        flex-direction: column;
+        box-shadow: -2px 0 5px rgba(0,0,0,0.05);
+        overflow: hidden; /* 内部スクロールのため */
+    }
+
+    .sidebar-header {
+        padding: 20px;
+        background: #fff;
+        border-bottom: 1px solid #eee;
+        flex-shrink: 0;
+    }
+
+    .bot-msg {
+        background-color: #e0f7fa;
+        color: #006064;
+        padding: 15px;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        margin-bottom: 15px;
+        border: 1px solid #b2ebf2;
+    }
+
+    .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .control-row {
+        display: flex;
+        gap: 10px;
+    }
+
+    select {
+        flex: 1;
+        padding: 8px;
+        border: 1px solid #b0bec5;
+        border-radius: 4px;
+        background: white;
+        font-size: 0.9rem;
+    }
+
+    button {
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: background 0.3s;
+        flex: 1;
+    }
+    button:hover {
+        background-color: #263238;
+    }
+    button:disabled {
+        background-color: #b0bec5;
+        cursor: wait;
+    }
+
+    /* リストエリア（スクロール可能） */
+    #list-area {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0;
+    }
+
+    .quake-list-item {
+        padding: 12px 20px;
+        border-bottom: 1px solid #f0f0f0;
+        cursor: pointer;
+        transition: background 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .quake-list-item:hover {
+        background-color: #fafafa;
+    }
+
+    .quake-list-item.selected {
+        background-color: var(--highlight-bg);
+        border-left: 5px solid var(--highlight-border);
+    }
+
+    .mag-badge {
+        width: 45px;
+        height: 45px;
+        border-radius: 50%;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 0.9rem;
+        flex-shrink: 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .quake-info {
+        flex: 1;
+    }
+    .quake-place {
+        font-weight: bold;
+        font-size: 0.95rem;
+        color: #333;
+        margin-bottom: 3px;
+        display: block;
+    }
+    .quake-time {
+        font-size: 0.8rem;
+        color: #78909c;
+    }
+
+    #loading {
+        text-align: center;
+        font-size: 0.8rem;
+        color: #78909c;
+        margin-top: 5px;
+        height: 20px;
+    }
+</style>
+</head>
+<body>
+
+<header>
+    <div class="header-title">🌎 USGS地震情報 Map</div>
+    <div id="header-time" class="last-update-display">Ready</div>
+</header>
+
+<div class="container">
+    <div id="map"></div>
+    
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="bot-msg">
+                <strong>USGS (米国地質調査所)</strong> のデータを表示中。<br>
+                過去24時間に発生した M2.5以上の地震をプロットします。
+            </div>
+            
+            <div class="controls">
+                <div class="control-row">
+                    <select id="refresh-interval" onchange="changeAutoRefresh()">
+                        <option value="manual">手動更新</option>
+                        <option value="180000">3分ごと</option>
+                        <option value="300000">5分ごと</option>
+                        <option value="1800000">30分ごと</option>
+                    </select>
+                    <button id="fetch-btn" onclick="manualRefresh()">更新する</button>
+                </div>
+                <div id="loading"></div>
+            </div>
+        </div>
+        <div id="list-area"></div>
+    </div>
+</div>
+
+<script>
+    // ★地図の初期設定：世界全体を表示 ([緯度0, 経度0], ズーム2)
+    const map = L.map('map').setView([20, 0], 2);
+
+    // ★ベースマップをOpenStreetMapに変更（世界地図として見やすい）
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 18,
+        minZoom: 2,
+        noWrap: false // 世界を横に繰り返して表示する
+    }).addTo(map);
+
+    let refreshTimer = null;
+    let mapMarkers = [];
+
+    // ★マグニチュード（M）に基づく色とサイズの定義
+    function getMagStyle(mag) {
+        let r = 5, c = "#cfd8dc";
+        
+        if (mag < 4.5) {
+            r = 6; c = "#26c6da"; // 水色 (小規模)
+        } else if (mag < 5.5) {
+            r = 10; c = "#66bb6a"; // 緑 (中規模)
+        } else if (mag < 6.5) {
+            r = 16; c = "#ffa726"; // オレンジ (強い)
+        } else if (mag < 7.5) {
+            r = 24; c = "#ef5350"; // 赤 (大規模)
+        } else {
+            r = 35; c = "#880e4f"; // 紫 (巨大)
+        }
+        
+        return { radius: r, color: c, opacity: 0.8, fillOpacity: 0.7 };
+    }
+
+    // データ取得時刻の表示更新
+    function updateLastFetchTime() {
+        const now = new Date();
+        const timeStr = now.toLocaleString('ja-JP', {
+            month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+        });
+        document.getElementById('header-time').innerText = `Updated: ${timeStr}`;
+    }
+
+    function manualRefresh() {
+        changeAutoRefresh(); // タイマーリセット
+        fetchEarthquakeData();
+    }
+
+    function changeAutoRefresh() {
+        if (refreshTimer) {
+            clearInterval(refreshTimer);
+            refreshTimer = null;
+        }
+        const intervalVal = document.getElementById('refresh-interval').value;
+        if (intervalVal !== "manual") {
+            const ms = parseInt(intervalVal, 10);
+            refreshTimer = setInterval(fetchEarthquakeData, ms);
+            console.log(`Auto refresh set: ${ms}ms`);
+        }
+    }
+
+    // ★クリック時の連動ハイライト処理
+    window.highlightQuake = function(index) {
+        // 全てリセット
+        mapMarkers.forEach((item, i) => {
+            // マーカーを元のスタイルに
+            item.layer.setStyle({
+                fillColor: item.originalStyle.color,
+                color: "white",
+                weight: 1,
+                fillOpacity: item.originalStyle.fillOpacity
+            });
+            // リストの選択状態解除
+            const listEl = document.getElementById(`quake-item-${i}`);
+            if (listEl) listEl.classList.remove('selected');
+        });
+
+        // 選択されたものを強調
+        if (mapMarkers[index]) {
+            const target = mapMarkers[index];
+            
+            // マーカーを赤枠・赤塗りに
+            target.layer.setStyle({
+                fillColor: "#ff1744",
+                color: "#ff1744",
+                weight: 4,
+                fillOpacity: 1.0
+            });
+            target.layer.bringToFront();
+            
+            // 地図の中心を移動（任意）
+            // map.setView(target.layer.getLatLng(), map.getZoom());
+
+            // リストを選択状態に
+            const targetListEl = document.getElementById(`quake-item-${index}`);
+            if (targetListEl) {
+                targetListEl.classList.add('selected');
+                targetListEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+    };
+
+    // ★データ取得のメイン関数 (USGS専用)
+    async function fetchEarthquakeData() {
+        const loading = document.getElementById('loading');
+        const btn = document.getElementById('fetch-btn');
+        const listArea = document.getElementById('list-area');
+        
+        loading.innerText = "データ通信中...";
+        btn.disabled = true;
+        
+        // リストをクリア (ただし読み込み完了まで前回の表示を残す手もあるが、今回はクリア)
+        listArea.innerHTML = "";
+        
+        // マーカーを地図から削除
+        mapMarkers.forEach(item => map.removeLayer(item.layer));
+        mapMarkers = [];
+
+        try {
+            // USGS GeoJSON Feed (過去1日, M2.5+)
+            const url = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson?" + new Date().getTime();
+            const response = await fetch(url);
+            
+            if (!response.ok) throw new Error("Network response was not ok");
+            const data = await response.json();
+
+            loading.innerText = "";
+            btn.disabled = false;
+            updateLastFetchTime();
+
+            let html = "";
+            let count = 0;
+
+            // データ処理
+            data.features.forEach(feature => {
+                const props = feature.properties;
+                const geom = feature.geometry;
+                
+                // 座標(Lon, Lat, Depth)とマグニチュードがあるか
+                if (geom && geom.coordinates && props.mag !== null) {
+                    const lng = geom.coordinates[0];
+                    const lat = geom.coordinates[1];
+                    const depth = geom.coordinates[2];
+                    const mag = props.mag;
+                    const place = props.place;
+                    
+                    const date = new Date(props.time);
+                    const timeStr = date.toLocaleString('ja-JP');
+
+                    // スタイル決定
+                    const style = getMagStyle(mag);
+
+                    // マーカー追加
+                    const marker = L.circleMarker([lat, lng], {
+                        radius: style.radius,
+                        fillColor: style.color,
+                        color: "white",
+                        weight: 1,
+                        opacity: 1,
+                        fillOpacity: style.fillOpacity
+                    }).bindPopup(`
+                        <div style="text-align:center;">
+                            <strong>M${mag.toFixed(1)}</strong><br>
+                            ${place}<br>
+                            <small>${timeStr}</small><br>
+                            深さ: ${depth}km
+                        </div>
+                    `);
+                    
+                    marker.addTo(map);
+
+                    // 配列に保存（後でハイライトするため）
+                    mapMarkers.push({
+                        layer: marker,
+                        originalStyle: style
+                    });
+
+                    // リスト項目生成
+                    html += `
+                    <div id="quake-item-${count}" class="quake-list-item" onclick="highlightQuake(${count})">
+                        <div class="mag-badge" style="background:${style.color}">
+                            M${mag.toFixed(1)}
+                        </div>
+                        <div class="quake-info">
+                            <span class="quake-place">${place}</span>
+                            <span class="quake-time">${timeStr}</span>
+                        </div>
+                    </div>`;
+                    
+                    count++;
+                }
+            });
+
+            if (count === 0) {
+                listArea.innerHTML = "<div style='padding:20px; text-align:center;'>データが見つかりませんでした。</div>";
+            } else {
+                listArea.innerHTML = html;
+            }
+
+        } catch (e) {
+            console.error(e);
+            loading.innerText = "エラーが発生しました";
+            btn.disabled = false;
+            alert("データの取得に失敗しました。\nインターネット接続を確認してください。");
+        }
+    }
+
+    // 初回実行
+    window.onload = function() {
+        fetchEarthquakeData();
+    };
+</script>
+</body>
+</html>

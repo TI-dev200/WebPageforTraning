@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>気象庁地震情報プロッター v2.2</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+    :root {
+        --primary-color: #003366;
+        --accent-color: #d32f2f;
+        --bg-color: #f5f5f5;
+        --highlight-color: #ffcccc; /* 選択時の背景色（薄い赤） */
+        --highlight-marker: #ff0000; /* 選択時のマーカー色（赤） */
+    }
+
+    body {
+        font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background-color: var(--bg-color);
+    }
+
+    header {
+        background-color: var(--primary-color);
+        color: white;
+        padding: 10px 15px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        z-index: 1001;
+    }
+
+    .header-title {
+        font-weight: bold;
+        font-size: 1.2rem;
+    }
+
+    .last-update-display {
+        font-size: 0.9rem;
+        font-weight: normal;
+        background: rgba(255,255,255,0.1);
+        padding: 4px 10px;
+        border-radius: 4px;
+    }
+
+    .container {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+        flex-direction: column;
+    }
+
+    @media (min-width: 768px) {
+        .container {
+            flex-direction: row;
+        }
+        .sidebar {
+            width: 350px;
+            border-left: 1px solid #ccc;
+        }
+    }
+
+    #map {
+        flex: 1;
+        z-index: 1;
+    }
+
+    .sidebar {
+        background: white;
+        padding: 20px;
+        overflow-y: auto;
+        box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .bot-msg {
+        background-color: #e3f2fd;
+        padding: 15px;
+        border-radius: 12px;
+        margin-bottom: 15px;
+        position: relative;
+        font-size: 0.95rem;
+        line-height: 1.6;
+    }
+    .bot-msg::before {
+        content: "🤖";
+        position: absolute;
+        top: -15px;
+        left: -10px;
+        font-size: 24px;
+        background: white;
+        border-radius: 50%;
+    }
+
+    .controls {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid #bbdefb;
+    }
+
+    .control-group {
+        margin-bottom: 10px;
+    }
+
+    label {
+        font-size: 0.85rem;
+        color: #555;
+        display: block;
+        margin-bottom: 4px;
+    }
+
+    select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        background: white;
+    }
+
+    .quake-list-item {
+        border-bottom: 1px solid #eee;
+        padding: 10px;
+        font-size: 0.9rem;
+        cursor: pointer; /* クリックできることを示す */
+        transition: background-color 0.2s;
+        border-radius: 4px;
+    }
+    .quake-list-item:hover {
+        background-color: #f0f0f0;
+    }
+    /* 選択状態のスタイル */
+    .quake-list-item.selected {
+        background-color: var(--highlight-color);
+        border: 1px solid var(--highlight-marker);
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        color: white;
+        font-weight: bold;
+        margin-right: 8px;
+        font-size: 0.8rem;
+    }
+    
+    button {
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 1rem;
+        width: 100%;
+        transition: background-color 0.3s;
+    }
+    button:hover {
+        opacity: 0.9;
+    }
+    button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+    }
+
+    #loading {
+        text-align: center;
+        color: #666;
+        display: none;
+        margin-top: 10px;
+        font-size: 0.9rem;
+    }
+</style>
+</head>
+<body>
+
+<header>
+    <div class="header-title">気象庁地震情報マップ</div>
+    <div id="header-time" class="last-update-display">データ未取得</div>
+</header>
+
+<div class="container">
+    <div id="map"></div>
+    
+    <div class="sidebar">
+        <div class="bot-msg" id="message-area">
+            気象庁（JMA）の公式データを取得して表示します。<br>
+            <strong>リストをクリックすると、地図上の場所が赤くなります。</strong>
+            
+            <div class="controls">
+                <div class="control-group">
+                    <label for="refresh-interval">自動更新設定</label>
+                    <select id="refresh-interval" onchange="changeAutoRefresh()">
+                        <option value="manual">手動更新のみ</option>
+                        <option value="180000">3分ごとに更新</option>
+                        <option value="300000">5分ごとに更新</option>
+                        <option value="1800000">30分ごとに更新</option>
+                        <option value="3600000">60分ごとに更新</option>
+                    </select>
+                </div>
+                <button id="fetch-btn" onclick="manualRefresh()">データを取得</button>
+                <div id="loading">通信中...</div>
+            </div>
+        </div>
+        <div id="list-area"></div>
+    </div>
+</div>
+
+<script>
+    // 地図の初期化
+    const map = L.map('map').setView([36.5, 138], 5);
+    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', {
+        attribution: "<a href='https://www.jma.go.jp/'>気象庁データ</a> | <a href='https://maps.gsi.go.jp/'>地理院タイル</a>",
+        maxZoom: 18
+    }).addTo(map);
+
+    // グローバル変数
+    let refreshTimer = null;
+    let mapMarkers = []; // 生成したマーカーオブジェクトと元のスタイルを保持する配列
+
+    // 震度ごとのスタイル定義
+    function getStyle(shindo) {
+        let r = 2, c = "#888", op = 0.6;
+        switch(shindo) {
+            case "1":  r=3;  c="#2196f3"; break;
+            case "2":  r=6;  c="#4caf50"; break;
+            case "3":  r=10; c="#ffeb3b"; op=0.8; break;
+            case "4":  r=16; c="#ff9800"; op=0.8; break;
+            case "5-": r=22; c="#f44336"; op=0.9; break;
+            case "5+": r=26; c="#d32f2f"; op=0.9; break;
+            case "6-": r=32; c="#8e24aa"; op=1.0; break;
+            case "6+": r=38; c="#4a148c"; op=1.0; break;
+            case "7":  r=50; c="#000000"; op=1.0; break;
+            default:   r=2;  c="#9e9e9e";
+        }
+        return { radius: r, color: c, opacity: op };
+    }
+
+    function parseCoordinate(coordStr) {
+        if (!coordStr) return null;
+        const match = coordStr.match(/([+-]\d+\.?\d*)([+-]\d+\.?\d*)/);
+        if (match) {
+            return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+        }
+        return null;
+    }
+
+    function updateLastFetchTime() {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = (now.getMonth() + 1).toString().padStart(2, '0');
+        const d = now.getDate().toString().padStart(2, '0');
+        const H = now.getHours().toString().padStart(2, '0');
+        const M = now.getMinutes().toString().padStart(2, '0');
+        document.getElementById('header-time').innerText = `データ取得: ${y}/${m}/${d} ${H}:${M}`;
+    }
+
+    function manualRefresh() {
+        changeAutoRefresh();
+        loadJMAData();
+    }
+
+    function changeAutoRefresh() {
+        if (refreshTimer) {
+            clearInterval(refreshTimer);
+            refreshTimer = null;
+        }
+        const intervalVal = document.getElementById('refresh-interval').value;
+        if (intervalVal !== "manual") {
+            const ms = parseInt(intervalVal, 10);
+            refreshTimer = setInterval(loadJMAData, ms);
+            console.log(`自動更新: ${ms}ms`);
+        }
+    }
+
+    // リスト項目クリック時の処理
+    window.highlightQuake = function(index) {
+        // 1. 全てのマーカーとリストを初期状態に戻す
+        mapMarkers.forEach((item, i) => {
+            // マーカーを元の色に戻す
+            item.layer.setStyle({
+                fillColor: item.originalStyle.color,
+                color: "white",
+                weight: 1,
+                fillOpacity: item.originalStyle.opacity
+            });
+            
+            // リスト項目の選択スタイルを解除
+            const listEl = document.getElementById(`quake-item-${i}`);
+            if (listEl) {
+                listEl.classList.remove('selected');
+            }
+        });
+
+        // 2. 選択されたマーカーとリストを赤く強調する
+        if (mapMarkers[index]) {
+            const target = mapMarkers[index];
+            
+            // マーカーを赤く
+            target.layer.setStyle({
+                fillColor: "#ff0000",
+                color: "#ff0000",
+                weight: 3,
+                fillOpacity: 1.0
+            });
+            target.layer.bringToFront(); // 最前面へ
+            
+            // 必要なら地図の中心を移動（お好みでコメントアウト解除）
+            // map.panTo(target.layer.getLatLng());
+
+            // リスト項目を赤く（クラス付与）
+            const targetListEl = document.getElementById(`quake-item-${index}`);
+            if (targetListEl) {
+                targetListEl.classList.add('selected');
+                // リスト内でスクロールして見えるようにする
+                targetListEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+    };
+
+    async function loadJMAData() {
+        const loading = document.getElementById('loading');
+        const btn = document.getElementById('fetch-btn');
+        const listArea = document.getElementById('list-area');
+        
+        loading.style.display = 'block';
+        btn.disabled = true;
+        listArea.innerHTML = "";
+
+        try {
+            const url = "https://www.jma.go.jp/bosai/quake/data/list.json?" + new Date().getTime();
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            
+            loading.style.display = 'none';
+            btn.disabled = false;
+
+            // 既存マーカー削除と配列クリア
+            map.eachLayer(layer => {
+                if (layer instanceof L.CircleMarker) map.removeLayer(layer);
+            });
+            mapMarkers = []; // リセット
+
+            let html = "<strong>最新の地震リスト（JMA公式）</strong><br>";
+            let validCount = 0; // 有効なデータのカウンタ（＝mapMarkersのインデックス）
+
+            data.forEach(quake => {
+                if (quake.cod && quake.maxi) {
+                    const coords = parseCoordinate(quake.cod);
+                    if (coords) {
+                        const style = getStyle(quake.maxi);
+                        const timeStr = quake.at || "日時不明";
+                        const place = quake.anm || "震源地不明";
+                        const mag = quake.mag || "-";
+
+                        // マーカー設置
+                        const marker = L.circleMarker([coords.lat, coords.lng], {
+                            radius: style.radius,
+                            fillColor: style.color,
+                            color: "white",
+                            weight: 1,
+                            opacity: 1,
+                            fillOpacity: style.opacity
+                        }).bindPopup(`
+                            <strong>${place}</strong><br>
+                            最大震度: ${quake.maxi}<br>
+                            M${mag} (${timeStr})
+                        `);
+                        
+                        marker.addTo(map);
+
+                        // マーカーと元のスタイルを保存（あとで戻すため）
+                        mapMarkers.push({
+                            layer: marker,
+                            originalStyle: style
+                        });
+
+                        // リストHTML生成（クリックイベントを仕込む）
+                        // 上位10件だけでなく、マップにあるものはリストに出したほうが操作しやすいですが、
+                        // 元の仕様に合わせて一旦上位10件のみ表示、あるいは全部表示するか。
+                        // 今回はインタラクション確認のため「有効なデータはすべてリスト化」または「表示されているリストに対応するマーカーのみ」の整合性を取ります。
+                        // ここでは「表示制限（10件）」を撤廃し、取得できたマーカー分はリストに出す方が自然ですが、
+                        // 長くなりすぎるのを防ぐためCSSでスクロールさせています。
+                        
+                        html += `
+                        <div id="quake-item-${validCount}" class="quake-list-item" onclick="highlightQuake(${validCount})">
+                            <span class="badge" style="background:${style.color}">震度${quake.maxi}</span>
+                            <strong>${place}</strong><br>
+                            <small>${timeStr} (M${mag})</small>
+                        </div>`;
+
+                        validCount++;
+                    }
+                }
+            });
+
+            updateLastFetchTime();
+            listArea.innerHTML = html;
+
+        } catch (e) {
+            loading.style.display = 'none';
+            btn.disabled = false;
+            console.error(e);
+            alert("データ取得に失敗しました。");
+        }
+    }
+    
+    window.onload = function() {
+        loadJMAData();
+    };
+</script>
+</body>
+</html>
